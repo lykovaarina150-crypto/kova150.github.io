@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Изометрическая комната подростка</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(circle at 50% 35%, #2a3142 0%, #10121a 65%, #07080c 100%);
+    color: #e8edf5;
+    -webkit-user-select: none; user-select: none;
+  }
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  .hud { position: fixed; top: 20px; left: 24px; pointer-events: none; }
+  .hud h1 { font-size: 17px; font-weight: 700; letter-spacing: .4px; }
+  .hud p { font-size: 12.5px; color: #8b97ad; margin-top: 7px; line-height: 1.55; }
+
+  .wall-controls {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 4px;
+    padding: 7px 9px;
+    background: rgba(20, 24, 34, .74);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 16px;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 14px 40px rgba(0,0,0,.5);
+  }
+  .wall-controls .label {
+    font-size: 12px; color: #7f8ba1; padding: 0 10px 0 6px; letter-spacing: .5px;
+    text-transform: uppercase; font-weight: 600;
+  }
+  .wall-controls button {
+    font: inherit; font-size: 13px; font-weight: 600;
+    color: #b9c4d6; background: transparent; border: none; cursor: pointer;
+    padding: 9px 16px; border-radius: 11px;
+    transition: background .18s ease, color .18s ease, box-shadow .18s ease;
+    white-space: nowrap;
+  }
+  .wall-controls button:hover { background: rgba(255,255,255,.07); color: #fff; }
+  .wall-controls button.active {
+    background: linear-gradient(180deg, #5b8cff, #3b6ad8);
+    color: #fff;
+    box-shadow: 0 4px 16px rgba(70,120,255,.45);
+  }
+  @media (max-width: 560px) {
+    .hud h1 { font-size: 15px; }
+    .hud p { font-size: 11px; }
+    .wall-controls button { padding: 8px 11px; font-size: 12px; }
+    .wall-controls .label { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<div class="hud">
+  <h1>Комната подростка · 3D</h1>
+  <p>ЛКМ — вращать · Колесо — зум<br>ПКМ / Shift+ЛКМ — двигать камеру</p>
+</div>
+
+<div class="wall-controls">
+  <span class="label">Стены</span>
+  <button data-mode="all" class="active">Все 4</button>
+  <button data-mode="back">Только задник</button>
+  <button data-mode="floor">Только пол</button>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+
+/* =========================================================
+   RENDERER / SCENE / CAMERA / CONTROLS
+   ========================================================= */
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.06;
+document.getElementById('app').appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 300);
+camera.position.set(12.5, 11.5, 12.5);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1.6, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.075;
+controls.rotateSpeed = 0.75;
+controls.panSpeed = 0.9;
+controls.zoomSpeed = 0.85;
+controls.screenSpacePanning = false;
+controls.minDistance = 5;
+controls.maxDistance = 38;
+controls.minPolarAngle = 0.12;
+controls.maxPolarAngle = Math.PI / 2 - 0.055;
+
+/* =========================================================
+   LIGHTS
+   ========================================================= */
+scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x3a2f2a, 1.05));
+scene.add(new THREE.AmbientLight(0xffffff, 0.32));
+
+const sun = new THREE.DirectionalLight(0xfff2dd, 2.5);
+sun.position.set(9, 15, 7);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 60;
+sun.shadow.camera.left = -14;
+sun.shadow.camera.right = 14;
+sun.shadow.camera.top = 14;
+sun.shadow.camera.bottom = -14;
+sun.shadow.bias = -0.0007;
+sun.shadow.normalBias = 0.022;
+sun.shadow.camera.updateProjectionMatrix();
+scene.add(sun);
+
+const fill = new THREE.DirectionalLight(0x9fc4ff, 0.7);
+fill.position.set(-10, 8, -7);
+scene.add(fill);
+
+/* =========================================================
+   HELPERS
+   ========================================================= */
+const _matCache = new Map();
+function M(color, roughness = 0.85, metalness = 0.0) {
+  const k = color + '|' + roughness + '|' + metalness;
+  let m = _matCache.get(k);
+  if (!m) {
+    m = new THREE.MeshStandardMaterial({ color, roughness, metalness });
+    _matCache.set(k, m);
+  }
+  return m;
+}
+
+function addBox(parent, w, h, d, color, x = 0, y = 0, z = 0, opts = {}) {
+  const radius = opts.radius ?? 0.04;
+  const maxR = Math.min(w, h, d) * 0.49;
+  const geo = radius > 0.0015
+    ? new RoundedBoxGeometry(w, h, d, opts.seg ?? 2, Math.min(radius, maxR))
+    : new THREE.BoxGeometry(w, h, d);
+  const material = opts.material ?? M(color, opts.roughness ?? 0.85, opts.metalness ?? 0.0);
+  const m = new THREE.Mesh(geo, material);
+  m.position.set(x, y, z);
+  if (opts.rotation) m.rotation.set(opts.rotation[0], opts.rotation[1], opts.rotation[2]);
+  m.castShadow = opts.cast !== false;
+  m.receiveShadow = opts.receive !== false;
+  parent.add(m);
+  return m;
+}
+
+function addCyl(parent, rTop, rBot, h, color, x = 0, y = 0, z = 0, opts = {}) {
+  const geo = new THREE.CylinderGeometry(rTop, rBot, h, opts.seg ?? 20);
+  const material = opts.material ?? M(color, opts.roughness ?? 0.85, opts.metalness ?? 0.0);
+  const m = new THREE.Mesh(geo, material);
+  m.position.set(x, y, z);
+  if (opts.rotation) m.rotation.set(opts.rotation[0], opts.rotation[1], opts.rotation[2]);
+  m.castShadow = opts.cast !== false;
+  m.receiveShadow = opts.receive !== false;
+  parent.add(m);
+  return m;
+}
+
+/* =========================================================
+   ROOM CONSTANTS
+   ========================================================= */
+const ROOM = { w: 10, h: 4.6, d: 10 };
+const HW = ROOM.w / 2;
+const HD = ROOM.d / 2;
+
+const roomGroup = new THREE.Group();
+scene.add(roomGroup);
+
+/* ---------- FLOOR SLAB ---------- */
+{
+  const slab = new THREE.Mesh(
+    new THREE.BoxGeometry(ROOM.w + 0.5, 0.55, ROOM.d + 0.5),
+    M(0x232833, 0.95)
+  );
+  slab.position.y = -0.34;
+  slab.receiveShadow = true;
+  roomGroup.add(slab);
+}
+
+/* ---------- WOODEN PLANKS ---------- */
+{
+  const plankW = ROOM.w / 10;
+  const base = new THREE.Color(0x9d7b57);
+  for (let i = 0; i < 10; i++) {
+    const c = base.clone().offsetHSL(0, (Math.random() - 0.5) * 0.03, (Math.random() - 0.5) * 0.075);
+    const geo = new THREE.BoxGeometry(plankW - 0.028, 0.14, ROOM.d);
+    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: c, roughness: 0.82 }));
+    m.position.set(-HW + plankW / 2 + i * plankW, -0.07, 0);
+    m.receiveShadow = true;
+    roomGroup.add(m);
+  }
+}
+
+/* =========================================================
+   WALLS
+   ========================================================= */
+const walls = {};
+['north', 'south', 'west', 'east'].forEach(k => {
+  walls[k] = new THREE.Group();
+  roomGroup.add(walls[k]);
+});
+
+function buildWall(group, w, h, d, color, x, y, z) {
+  const geo = new THREE.BoxGeometry(w, h, d);
+  const mesh = new THREE.Mesh(geo, M(color, 0.96));
+  mesh.position.set(x, y, z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  group.add(mesh);
+
+  // baseboard (плинтус) — тонкая полоска у пола
+  const bbThick = 0.1, bbH = 0.22;
+  let bb;
+  if (w > d) {
+    bb = new THREE.Mesh(new THREE.BoxGeometry(w - 0.02, bbH, bbThick), M(0xf2f3f7, 0.8));
+    bb.position.set(x, bbH / 2, z + Math.sign(z) * -(d / 2 + bbThick / 2));
+    // adjust: baseboard must be on the inner side
+    bb.position.z = z + (z < 0 ? (d / 2 + bbThick / 2) : -(d / 2 + bbThick / 2));
+  } else {
+    bb = new THREE.Mesh(new THREE.BoxGeometry(bbThick, bbH, d - 0.02), M(0xf2f3f7, 0.8));
+    bb.position.set(x + (x < 0 ? (w / 2 + bbThick / 2) : -(w / 2 + bbThick / 2)), bbH / 2, z);
+  }
+  bb.castShadow = false;
+  bb.receiveShadow = true;
+  group.add(bb);
+  return mesh;
+}
+
+const WALL_LIGHT = 0xdfe2ea;
+const WALL_ACCENT = 0x4b5f70;
+
+buildWall(walls.north, ROOM.w + 0.4, ROOM.h, 0.2, WALL_ACCENT, 0, ROOM.h / 2, -HD - 0.1);
+buildWall(walls.south, ROOM.w + 0.4, ROOM.h, 0.2, WALL_LIGHT, 0, ROOM.h / 2, HD + 0.1);
+buildWall(walls.west, 0.2, ROOM.h, ROOM.d + 0.4, WALL_LIGHT, -HW - 0.1, ROOM.h / 2, 0);
+buildWall(walls.east, 0.2, ROOM.h, ROOM.d + 0.4, WALL_LIGHT, HW + 0.1, ROOM.h / 2, 0);
+
+/* =========================================================
+   POSTERS (canvas textures)
+   ========================================================= */
+function makePosterTexture(type) {
+  const c = document.createElement('canvas');
+  c.width = 400; c.height = 520;
+  const g = c.getContext('2d');
+
+  if (type === 0) {
+    // sunset / mountains
+    const grad = g.createLinearGradient(0, 0, 0, 520);
+    grad.addColorStop(0, '#2b1055');
+    grad.addColorStop(0.55, '#8a2d8e');
+    grad.addColorStop(1, '#ff7e5f');
+    g.fillStyle = grad; g.fillRect(0, 0, 400, 520);
+    g.fillStyle = '#ffe66d';
+    g.beginPath(); g.arc(200, 300, 92, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#1b1030';
+    g.beginPath(); g.moveTo(0, 520); g.lineTo(80, 330); g.lineTo(190, 470);
+    g.lineTo(300, 340); g.lineTo(400, 520); g.closePath(); g.fill();
+    g.fillStyle = 'rgba(255,255,255,.85)';
+    g.font = 'bold 26px sans-serif'; g.textAlign = 'center';
+    g.fillText('OUT THERE', 200, 490);
+  } else if (type === 1) {
+    // neon
+    g.fillStyle = '#0b0b16'; g.fillRect(0, 0, 400, 520);
+    g.strokeStyle = '#00f0ff'; g.lineWidth = 9;
+    g.beginPath(); g.arc(200, 220, 115, 0, Math.PI * 2); g.stroke();
+    g.strokeStyle = '#ff2e88'; g.lineWidth = 7;
+    g.beginPath(); g.arc(200, 220, 72, 0, Math.PI * 2); g.stroke();
+    g.fillStyle = '#00f0ff';
+    g.font = 'bold 66px sans-serif'; g.textAlign = 'center';
+    g.fillText('PLAY', 200, 420);
+    g.fillStyle = '#ff2e88';
+    g.font = 'bold 20px sans-serif';
+    g.fillText('— ALL NIGHT —', 200, 460);
+  } else {
+    // abstract shapes
+    g.fillStyle = '#f2e9dc'; g.fillRect(0, 0, 400, 520);
+    g.fillStyle = '#ef476f';
+    g.beginPath(); g.arc(135, 175, 82, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#118ab2';
+    g.fillRect(145, 245, 205, 205);
+    g.fillStyle = '#ffd166';
+    g.beginPath(); g.moveTo(55, 480); g.lineTo(195, 295); g.lineTo(335, 480);
+    g.closePath(); g.fill();
+    g.strokeStyle = '#073b4c'; g.lineWidth = 6;
+    g.beginPath(); g.moveTo(30, 60); g.lineTo(370, 60); g.stroke();
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+function addPoster(parent, tex, w, h, x, y, z, rotY = 0) {
+  const g = new THREE.Group();
+  const frame = new THREE.Mesh(
+    new THREE.BoxGeometry(w + 0.09, h + 0.09, 0.04),
+    M(0x181a1f, 0.7, 0.1)
+  );
+  frame.position.z = -0.022;
+  frame.castShadow = true;
+  g.add(frame);
+
+  const p = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, h),
+    new THREE.MeshStandardMaterial({ map: tex, roughness: 0.92 })
+  );
+  p.position.z = 0.004;
+  g.add(p);
+
+  g.position.set(x, y, z);
+  g.rotation.y = rotY;
+  parent.add(g);
+}
+
+// Постеры на задней (северной) стене
+addPoster(walls.north, makePosterTexture(0), 1.25, 1.62, -3.15, 2.95, -4.96, 0);
+addPoster(walls.north, makePosterTexture(1), 1.0, 1.3, -1.25, 2.75, -4.96, 0);
+// Постер на западной стене
+addPoster(walls.west, makePosterTexture(2), 1.4, 1.8, -4.96, 2.6, -3.15, Math.PI / 2);
+
+/* =========================================================
+   WINDOW (на северной стене, над столом)
+   ========================================================= */
+{
+  const g = new THREE.Group();
+
+  const frameMat = M(0xf4f5f8, 0.75);
+  addBox(g, 2.7, 1.9, 0.12, 0, 0, 0, 0, { material: frameMat, radius: 0.03 });
+
+  // «стекло»
+  const glass = new THREE.Mesh(
+    new THREE.BoxGeometry(2.4, 1.6, 0.06),
+    new THREE.MeshStandardMaterial({
+      color: 0xbfe4ff, emissive: 0x8fc6ff, emissiveIntensity: 0.85,
+      roughness: 0.15, metalness: 0.0, transparent: true, opacity: 0.9
+    })
+  );
+  glass.position.z = 0.02;
+  g.add(glass);
+
+  // переплёт
+  addBox(g, 0.07, 1.6, 0.14, 0, 0, 0, 0.035, { material: frameMat, radius: 0.02 });
+  addBox(g, 2.4, 0.07, 0.14, 0, 0, 0.15, 0.035, { material: frameMat, radius: 0.02 });
+
+  // подоконник
+  addBox(g, 2.9, 0.1, 0.36, 0, 0, -1.0, 0.1, { material: frameMat, radius: 0.03 });
+
+  g.position.set(2.7, 2.85, -4.93);
+  walls.north.add(g);
+
+  // мягкий свет из окна
+  const wl = new THREE.PointLight(0xbfe0ff, 6, 9, 2);
+  wl.position.set(2.7, 2.85, -4.2);
+  walls.north.add(wl);
+}
+
+/* =========================================================
+   ГИРЛЯНДА (на северной стене)
+   ========================================================= */
+{
+  const g = new THREE.Group();
+  const n = 13;
+  const bulbGeo = new THREE.SphereGeometry(0.055, 10, 8);
+  const bulbColors = [0xffd166, 0xff6b9d, 0x6ee7ff, 0xa78bfa, 0xffd166];
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    const x = -4.3 + t * 8.6;
+    const y = 4.05 - Math.sin(t * Math.PI) * 0.32;
+    const mat = new THREE.MeshStandardMaterial({
+      color: bulbColors[i % bulbColors.length],
+      emissive: bulbColors[i % bulbColors.length],
+      emissiveIntensity: 1.6,
+      roughness: 0.6
+    });
+    const b = new THREE.Mesh(bulbGeo, mat);
+    b.position.set(x, y, -4.9);
+    g.add(b);
+  }
+  // провод
+  const pts = [];
+  for (let i = 0; i <= 40; i++) {
+    const t = i / 40;
+    pts.push(new THREE.Vector3(-4.3 + t * 8.6, 4.05 - Math.sin(t * Math.PI) * 0.32 + 0.09, -4.9));
+  }
+  const wire = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({ color: 0x2a2f3a })
+  );
+  g.add(wire);
+  walls.north.add(g);
+}
+
+/* =========================================================
+   FURNITURE BUILDERS
+   ========================================================= */
+
+/* ---------- КРОВАТЬ ---------- */
+function createBed() {
+  const g = new THREE.Group();
+  const W = 2.4, D = 3.4;
+
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    addBox(g, 0.16, 0.3, 0.16, 0x4a3222, sx * (W / 2 - 0.16), 0.15, sz * (D / 2 - 0.16), { radius: 0.03 });
+  }
+  addBox(g, W, 0.32, D, 0x6d4c34, 0, 0.43, 0, { radius: 0.05 });
+  addBox(g, W - 0.12, 0.34, D - 0.12, 0xf6f2ea, 0, 0.76, 0, { radius: 0.13 });
+
+  // одеяло
+  addBox(g, W - 0.06, 0.24, D * 0.6, 0x4f74c4, 0, 0.97, D * 0.2, { radius: 0.1 });
+  addBox(g, W - 0.06, 0.11, 0.34, 0x6b8fd6, 0, 1.05, D * 0.2 - D * 0.3, { radius: 0.05 });
+
+  // подушки
+  const pil = addBox(g, 1.72, 0.3, 0.78, 0xffffff, 0, 1.01, -D / 2 + 0.62, { radius: 0.14 });
+  pil.rotation.x = -0.06;
+  addBox(g, 0.7, 0.22, 0.5, 0xf2a03d, 0.55, 1.14, -D / 2 + 1.2,
+    { radius: 0.08, rotation: [-0.18, 0.35, 0.05] });
+
+  // изголовье
+  addBox(g, W + 0.14, 1.45, 0.18, 0x5a3d29, 0, 0.72, -D / 2 - 0.14, { radius: 0.07 });
+
+  return g;
+}
+
+/* ---------- ТУМБОЧКА ---------- */
+function createNightstand() {
+  const g = new THREE.Group();
+
+  addBox(g, 1.0, 1.05, 1.0, 0x8a6244, 0, 0.525, 0, { radius: 0.05 });
+  addBox(g, 0.86, 0.26, 0.05, 0x9b7355, 0, 0.78, 0.5, { radius: 0.02 });
+  addBox(g, 0.2, 0.05, 0.06, 0xd9c9a0, 0, 0.78, 0.53, { radius: 0.02 });
+  addBox(g, 0.86, 0.26, 0.05, 0x9b7355, 0, 0.42, 0.5, { radius: 0.02 });
+  addBox(g, 0.2, 0.05, 0.06, 0xd9c9a0, 0, 0.42, 0.53, { radius: 0.02 });
+
+  // лампа
+  addCyl(g, 0.14, 0.18, 0.06, 0x2c3038, 0, 1.08, -0.16, { metalness: 0.45, roughness: 0.4 });
+  addCyl(g, 0.03, 0.03, 0.34, 0x2c3038, 0, 1.28, -0.16, { metalness: 0.45, roughness: 0.4 });
+  addCyl(g, 0.2, 0.29, 0.32, 0, 0, 1.58, -0.16, {
+    seg: 22,
+    material: new THREE.MeshStandardMaterial({
+      color: 0xfff1cf, emissive: 0xffc46b, emissiveIntensity: 0.9,
+      roughness: 0.9, side: THREE.DoubleSide
+    })
+  });
+  const pl = new THREE.PointLight(0xffc98a, 4, 5, 2);
+  pl.position.set(0, 1.55, -0.16);
+  g.add(pl);
+
+  // будильник
+  addBox(g, 0.32, 0.22, 0.12, 0x22262e, 0.24, 1.16, 0.2, { radius: 0.03 });
+  const face = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.22, 0.13),
+    new THREE.MeshStandardMaterial({ color: 0x7cf7c8, emissive: 0x3ad8a0, emissiveIntensity: 1.1 })
+  );
+  face.position.set(0.24, 1.16, 0.267);
+  g.add(face);
+
+  // книга
+  addBox(g, 0.36, 0.08, 0.26, 0xd94f4f, -0.24, 1.09, 0.2, { radius: 0.012 });
+
+  return g;
+}
+
+/* ---------- СТОЛ ---------- */
+function createDesk() {
+  const g = new THREE.Group();
+  const W = 3.8, D = 1.5, H = 1.15;
+
+  addBox(g, W, 0.1, D, 0xc9a878, 0, H, 0, { radius: 0.045 });
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    addBox(g, 0.1, H, 0.1, 0x3a3f4a, sx * (W / 2 - 0.13), H / 2, sz * (D / 2 - 0.13), { radius: 0.02 });
+  }
+  // задняя панель
+  addBox(g, W - 0.45, 0.48, 0.06, 0x3a3f4a, 0, H - 0.3, -D / 2 + 0.12, { radius: 0.02 });
+  // ящик
+  addBox(g, 1.0, 0.24, D - 0.3, 0x8a6244, -W / 2 + 0.55, H - 0.18, 0, { radius: 0.03 });
+  addBox(g, 0.26, 0.05, 0.05, 0xd9c9a0, -W / 2 + 0.55, H - 0.18, D / 2 - 0.16, { radius: 0.02 });
+
+  /* монитор */
+  const monW = 1.5, monH = 0.86;
+  addBox(g, 0.58, 0.04, 0.32, 0x1d2129, 0, H + 0.07, -0.3, { radius: 0.02 });
+  addBox(g, 0.09, 0.42, 0.09, 0x1d2129, 0, H + 0.28, -0.3, { radius: 0.02 });
+  const sy = H + 0.72;
+  addBox(g, monW, monH, 0.07, 0x14181f, 0, sy, -0.32, { radius: 0.03 });
+  const scr = new THREE.Mesh(
+    new THREE.PlaneGeometry(monW - 0.1, monH - 0.1),
+    new THREE.MeshStandardMaterial({
+      color: 0x24436e, emissive: 0x3f8fd6, emissiveIntensity: 1.05, roughness: 0.28
+    })
+  );
+  scr.position.set(0, sy, -0.32 + 0.042);
+  g.add(scr);
+  // блик на экране
+  const glare = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.5, 0.3),
+    new THREE.MeshBasicMaterial({ color: 0x9ed3ff, transparent: true, opacity: 0.16 })
+  );
+  glare.position.set(-0.35, sy + 0.2, -0.32 + 0.045);
+  g.add(glare);
+
+  /* клавиатура */
+  addBox(g, 0.95, 0.05, 0.32, 0x22262e, 0, H + 0.075, 0.16, { radius: 0.02 });
+  const keys = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.86, 0.24),
+    new THREE.MeshStandardMaterial({ color: 0x353b46, emissive: 0x2a6fb0, emissiveIntensity: 0.35, roughness: 0.7 })
+  );
+  keys.rotation.x = -Math.PI / 2;
+  keys.position.set(0, H + 0.102, 0.16);
+  g.add(keys);
+
+  /* мышка + коврик */
+  addBox(g, 0.55, 0.02, 0.42, 0x2a3a5c, 0.95, H + 0.06, 0.22, { radius: 0.02 });
+  addBox(g, 0.16, 0.06, 0.24, 0x22262e, 0.95, H + 0.09, 0.22, { radius: 0.06 });
+
+  /* настольная лампа */
+  addCyl(g, 0.15, 0.17, 0.05, 0x2c3038, -1.42, H + 0.075, -0.42, { metalness: 0.4, roughness: 0.4 });
+  const armMat = M(0x2c3038, 0.45, 0.4);
+  addBox(g, 0.05, 0.7, 0.05, 0, -1.42, H + 0.42, -0.42, { material: armMat, radius: 0.02 });
+  addBox(g, 0.05, 0.5, 0.05, 0, -1.25, H + 0.7, -0.28,
+    { material: armMat, radius: 0.02, rotation: [0.6, 0, -0.5] });
+  addCyl(g, 0.09, 0.2, 0.24, 0, -1.08, H + 0.88, -0.12, {
+    seg: 20,
+    material: new THREE.MeshStandardMaterial({
+      color: 0xfff1cf, emissive: 0xffc46b, emissiveIntensity: 0.85,
+      roughness: 0.9, side: THREE.DoubleSide
+    })
+  });
+
+  /* кружка */
+  addCyl(g, 0.11, 0.09, 0.19, 0xf2f3f7, 1.28, H + 0.145, 0.05, { seg: 18, roughness: 0.5 });
+  addCyl(g, 0.085, 0.085, 0.02, 0x5a3d29, 1.28, H + 0.24, 0.05, { seg: 18 });
+
+  /* стаканчик с ручками */
+  addCyl(g, 0.09, 0.09, 0.16, 0x3a4a63, -0.55, H + 0.13, -0.42, { seg: 14 });
+  const penColors = [0xef476f, 0x06d6a0, 0xffd166];
+  for (let i = 0; i < 3; i++) {
+    const a = i * 2.1;
+    addCyl(g, 0.015, 0.015, 0.3, penColors[i],
+      -0.55 + Math.cos(a) * 0.035, H + 0.32, -0.42 + Math.sin(a) * 0.035,
+      { seg: 6, rotation: [Math.sin(a) * 0.16, 0, -Math.cos(a) * 0.16] });
+  }
+
+  /* наушники */
+  const hpMat = M(0x1b1e24, 0.6, 0.15);
+  const band = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.025, 8, 20, Math.PI), hpMat);
+  band.position.set(0.35, H + 0.16, -0.4);
+  band.rotation.set(Math.PI / 2, 0, 0);
+  g.add(band);
+  for (const s of [-1, 1]) {
+    addCyl(g, 0.08, 0.08, 0.06, 0, 0.35 + s * 0.16, H + 0.09, -0.4,
+      { material: hpMat, seg: 14, rotation: [0, 0, Math.PI / 2] });
+  }
+
+  return g;
+}
+
+/* ---------- КРЕСЛО ---------- */
+function createChair() {
+  const g = new THREE.Group();
+  const dark = M(0x2b2f3a, 0.5, 0.55);
+
+  addCyl(g, 0.06, 0.06, 0.36, 0, 0, 0.2, 0, { material: dark, seg: 12 });
+
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    const leg = addBox(g, 0.46, 0.055, 0.09, 0, Math.cos(a) * 0.23, 0.06, Math.sin(a) * 0.23,
+      { material: dark, radius: 0.02 });
+    leg.rotation.y = -a;
+    addCyl(g, 0.06, 0.06, 0.05, 0x121418,
+      Math.cos(a) * 0.46, 0.055, Math.sin(a) * 0.46, { seg: 10 });
+  }
+
+  addBox(g, 0.64, 0.13, 0.64, 0x3a4a63, 0, 0.52, 0, { radius: 0.06 });
+  const back = addBox(g, 0.62, 0.88, 0.13, 0x3a4a63, 0, 0.97, 0.29, { radius: 0.06 });
+  back.rotation.x = -0.13;
+  // подлокотники
+  for (const s of [-1, 1]) {
+    addBox(g, 0.07, 0.28, 0.07, 0x2b2f3a, s * 0.34, 0.66, 0.05, { radius: 0.02 });
+    addBox(g, 0.09, 0.06, 0.36, 0x2b2f3a, s * 0.34, 0.81, 0.05, { radius: 0.02 });
+  }
+  return g;
+}
+
+/* ---------- СТЕЛЛАЖ ---------- */
+function createBookshelf() {
+  const g = new THREE.Group();
+  const W = 2.8, D = 0.7, H = 3.2;
+  const wood = 0x6b4a30;
+  const shelfY = [];
+
+  addBox(g, 0.08, H, D, wood, -W / 2 + 0.04, H / 2, 0, { radius: 0.02 });
+  addBox(g, 0.08, H, D, wood, W / 2 - 0.04, H / 2, 0, { radius: 0.02 });
+  addBox(g, W, H, 0.06, 0x5a3d28, 0, H / 2, -D / 2 + 0.03, { radius: 0.01 });
+
+  for (let i = 0; i <= 4; i++) {
+    const y = 0.12 + i * ((H - 0.24) / 4);
+    shelfY.push(y);
+    addBox(g, W - 0.14, 0.07, D - 0.06, wood, 0, y, 0, { radius: 0.02 });
+  }
+
+  const bookColors = [0xd94f4f, 0x3f8fd6, 0x51b56a, 0xf2a03d, 0x9b5de5, 0xef476f, 0x06d6a0, 0xffd166, 0x118ab2];
+  for (let s = 0; s < 4; s++) {
+    const baseY = shelfY[s] + 0.035;
+    let x = -W / 2 + 0.14;
+    while (x < W / 2 - 0.25) {
+      const bw = 0.09 + Math.random() * 0.11;
+      const bh = 0.34 + Math.random() * 0.26;
+      const bd = 0.38 + Math.random() * 0.16;
+      if (x + bw > W / 2 - 0.14) break;
+      if (Math.random() > 0.13) {
+        addBox(g, bw, bh, bd, bookColors[(Math.random() * bookColors.length) | 0],
+          x + bw / 2, baseY + bh / 2, 0.02, { radius: 0.012, seg: 1 });
+      }
+      x += bw + 0.014;
+    }
+  }
+
+  // декор на верхней полке
+  addCyl(g, 0.14, 0.11, 0.28, 0xdfe4ee, 0.75, shelfY[4] + 0.18, 0, { seg: 16, roughness: 0.4 });
+  const orb = new THREE.Mesh(
+    new THREE.SphereGeometry(0.17, 18, 14),
+    new THREE.MeshStandardMaterial({ color: 0x6ee7ff, emissive: 0x2fb8e0, emissiveIntensity: 0.5, roughness: 0.35 })
+  );
+  orb.position.set(-0.85, shelfY[4] + 0.22, 0);
+  orb.castShadow = true;
+  g.add(orb);
+
+  return g;
+}
+
+/* ---------- ШКАФ ---------- */
+function createWardrobe() {
+  const g = new THREE.Group();
+  const W = 2.0, D = 0.75, H = 3.4;
+
+  addBox(g, W, H, D, 0x7d5a3c, 0, H / 2, 0, { radius: 0.05 });
+  addBox(g, W / 2 - 0.07, H - 0.18, 0.05, 0x8f6a48, -W / 4, H / 2, D / 2 + 0.004, { radius: 0.03 });
+  addBox(g, W / 2 - 0.07, H - 0.18, 0.05, 0x8f6a48, W / 4, H / 2, D / 2 + 0.004, { radius: 0.03 });
+
+  addBox(g, 0.04, 0.42, 0.05, 0xd9c9a0, -0.07, H / 2, D / 2 + 0.06, { radius: 0.02 });
+  addBox(g, 0.04, 0.42, 0.05, 0xd9c9a0, 0.07, H / 2, D / 2 + 0.06, { radius: 0.02 });
+
+  // наклейка-стикер
+  const sticker = new THREE.Mesh(
+    new THREE.CircleGeometry(0.22, 24),
+    new THREE.MeshStandardMaterial({ color: 0xffd166, roughness: 0.85 })
+  );
+  sticker.position.set(-0.45, 2.6, D / 2 + 0.032);
+  g.add(sticker);
+
+  // коробка сверху
+  addBox(g, 0.8, 0.5, 0.6, 0xb98a5e, 0.3, H + 0.25, 0, { radius: 0.03 });
+
+  return g;
+}
+
+/* ---------- КОВЁР ---------- */
+function createRug() {
+  const g = new THREE.Group();
+  addBox(g, 4.6, 0.05, 3.6, 0x8b6fb0, 0, 0.025, 0, { radius: 0.02, cast: false });
+  addBox(g, 3.9, 0.02, 2.9, 0xc9b6e0, 0, 0.055, 0, { radius: 0.02, cast: false });
+  addBox(g, 2.5, 0.02, 1.7, 0x8b6fb0, 0, 0.062, 0, { radius: 0.02, cast: false });
+  addBox(g, 1.1, 0.02, 0.7, 0xf0e6ff, 0, 0.068, 0, { radius: 0.02, cast: false });
+  return g;
+}
+
+/* ---------- КРЕСЛО-МЕШОК ---------- */
+function createBeanbag() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.SphereGeometry(0.88, 26, 18),
+    M(0x9b5de5, 0.95)
+  );
+  body.scale.set(1.05, 0.62, 1.05);
+  body.position.y = 0.5;
+  body.castShadow = true;
+  body.receiveShadow = true;
+  g.add(body);
+
+  const top = new THREE.Mesh(new THREE.SphereGeometry(0.55, 20, 14), M(0x8a4fd0, 0.95));
+  top.scale.set(1, 0.6, 1);
+  top.position.set(0, 0.72, 0.12);
+  top.castShadow = true;
+  top.receiveShadow = true;
+  g.add(top);
+  return g;
+}
+
+/* ---------- ТОРШЕР ---------- */
+function createFloorLamp() {
+  const g = new THREE.Group();
+  addCyl(g, 0.22, 0.28, 0.07, 0x2c3038, 0, 0.035, 0, { metalness: 0.5, roughness: 0.4 });
+  addCyl(g, 0.035, 0.035, 2.5, 0x3a3f4a, 0, 1.3, 0, { metalness: 0.45, roughness: 0.45 });
+  addCyl(g, 0.42, 0.56, 0.56, 0, 0, 2.78, 0, {
+    seg: 26,
+    material: new THREE.MeshStandardMaterial({
+      color: 0xfff4dd, emissive: 0xffc46b, emissiveIntensity: 0.9,
+      roughness: 0.9, side: THREE.DoubleSide
+    })
+  });
+  const pl = new THREE.PointLight(0xffd9a0, 11, 8, 2);
+  pl.position.set(0, 2.7, 0);
+  g.add(pl);
+  return g;
+}
+
+/* ---------- РАСТЕНИЕ ---------- */
+function createPlant() {
+  const g = new THREE.Group();
+  addCyl(g, 0.34, 0.26, 0.55, 0xb96b4a, 0, 0.275, 0, { seg: 22, roughness: 0.92 });
+  addCyl(g, 0.31, 0.31, 0.05, 0x3a2a1f, 0, 0.56, 0, { seg: 20 });
+
+  const leafMat = M(0x3e8e5a, 0.85);
+  const stemMat = M(0x2f6b45, 0.9);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + Math.random() * 0.6;
+    const r = 0.1 + Math.random() * 0.22;
+    const h = 0.85 + Math.random() * 0.95;
+
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.02, h, 6), stemMat);
+    stem.position.set(Math.cos(a) * r * 0.35, 0.56 + h / 2, Math.sin(a) * r * 0.35);
+    stem.rotation.z = Math.cos(a) * 0.26;
+    stem.rotation.x = -Math.sin(a) * 0.26;
+    stem.castShadow = true;
+    g.add(stem);
+
+    const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 10), leafMat);
+    leaf.scale.set(1, 0.34, 0.62);
+    leaf.position.set(Math.cos(a) * (r + 0.16), 0.56 + h, Math.sin(a) * (r + 0.16));
+    leaf.rotation.y = -a;
+    leaf.rotation.z = 0.38;
+    leaf.castShadow = true;
+    g.add(leaf);
+  }
+  return g;
+}
+
+/* ---------- РЮКЗАК ---------- */
+function createBackpack() {
+  const g = new THREE.Group();
+  addBox(g, 0.6, 0.78, 0.34, 0x2f4a6b, 0, 0.4, 0, { radius: 0.15 });
+  addBox(g, 0.42, 0.36, 0.13, 0x24405e, 0, 0.28, 0.18, { radius: 0.06 });
+  addBox(g, 0.08, 0.55, 0.08, 0x24405e, -0.18, 0.58, -0.17, { radius: 0.03, rotation: [0.32, 0, 0] });
+  addBox(g, 0.08, 0.55, 0.08, 0x24405e, 0.18, 0.58, -0.17, { radius: 0.03, rotation: [0.32, 0, 0] });
+  addBox(g, 0.16, 0.16, 0.06, 0xef476f, 0, 0.62, 0.19, { radius: 0.03 });
+  g.rotation.y = 0.55;
+  return g;
+}
+
+/* ---------- МУСОРКА ---------- */
+function createTrashBin() {
+  const g = new THREE.Group();
+  addCyl(g, 0.22, 0.19, 0.55, 0x59606e, 0, 0.275, 0, { seg: 18, metalness: 0.35, roughness: 0.5 });
+  addCyl(g, 0.235, 0.235, 0.04, 0x3f4552, 0, 0.57, 0, { seg: 18, metalness: 0.35, roughness: 0.4 });
+  return g;
+}
+
+/* ---------- КНИГИ НА ПОЛУ ---------- */
+function createBookStack() {
+  const g = new THREE.Group();
+  const cols = [0xef476f, 0x118ab2, 0xffd166, 0x06d6a0];
+  let y = 0;
+  for (let i = 0; i < 4; i++) {
+    const h = 0.07 + Math.random() * 0.04;
+    addBox(g, 0.42 - i * 0.02, h, 0.3, cols[i], (Math.random() - 0.5) * 0.05, y + h / 2, 0,
+      { radius: 0.01, rotation: [0, (Math.random() - 0.5) * 0.5, 0] });
+    y += h;
+  }
+  return g;
+}
+
+/* =========================================================
+   ASSEMBLING THE ROOM
+   ========================================================= */
+
+// Кровать
+const bed = createBed();
+bed.position.set(-3.55, 0, -3.2);
+roomGroup.add(bed);
+
+// Тумбочка
+const nightstand = createNightstand();
+nightstand.position.set(-1.55, 0, -4.35);
+roomGroup.add(nightstand);
+
+// Стол
+const desk = createDesk();
+desk.position.set(2.7, 0, -4.25);
+roomGroup.add(desk);
+
+// Кресло
+const chair = createChair();
+chair.position.set(2.7, 0, -3.0);
+chair.rotation.y = 0.18;
+roomGroup.add(chair);
+
+// Стеллаж (у западной стены, лицом в комнату)
+const bookshelf = createBookshelf();
+bookshelf.position.set(-4.63, 0, 0.6);
+bookshelf.rotation.y = Math.PI / 2;
+roomGroup.add(bookshelf);
+
+// Шкаф
+const wardrobe = createWardrobe();
+wardrobe.position.set(-4.58, 0, 3.4);
+wardrobe.rotation.y = Math.PI / 2;
+roomGroup.add(wardrobe);
+
+// Ковёр
+const rug = createRug();
+rug.position.set(0.9, 0, 1.1);
+roomGroup.add(rug);
+
+// Кресло-мешок
+const beanbag = createBeanbag();
+beanbag.position.set(3.35, 0, 2.4);
+roomGroup.add(beanbag);
+
+// Торшер
+const floorLamp = createFloorLamp();
+floorLamp.position.set(-1.7, 0, 2.6);
+roomGroup.add(floorLamp);
+
+// Растение
+const plant = createPlant();
+plant.position.set(4.15, 0, 3.95);
+roomGroup.add(plant);
+
+// Рюкзак
+const backpack = createBackpack();
+backpack.position.set(0.4, 0, -2.9);
+roomGroup.add(backpack);
+
+// Мусорка
+const bin = createTrashBin();
+bin.position.set(0.35, 0, -4.35);
+roomGroup.add(bin);
+
+// Книги на полу
+const bookStack = createBookStack();
+bookStack.position.set(2.0, 0, 1.9);
+bookStack.rotation.y = 0.6;
+roomGroup.add(bookStack);
+
+/* =========================================================
+   WALL MODES
+   ========================================================= */
+const WALL_MODES = {
+  all:   ['north', 'south', 'west', 'east'],
+  back:  ['north', 'west'],
+  floor: []
+};
+
+let currentMode = 'all';
+
+function setWallMode(mode) {
+  if (!WALL_MODES[mode]) return;
+  currentMode = mode;
+  const visible = WALL_MODES[mode];
+  for (const key in walls) {
+    walls[key].visible = visible.includes(key);
+  }
+  document.querySelectorAll('.wall-controls button').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
+}
+
+document.querySelectorAll('.wall-controls button').forEach(btn => {
+  btn.addEventListener('click', () => setWallMode(btn.dataset.mode));
+});
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === '1') setWallMode('all');
+  if (e.key === '2') setWallMode('back');
+  if (e.key === '3') setWallMode('floor');
+});
+
+/* =========================================================
+   RESIZE + LOOP
+   ========================================================= */
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  // ограничиваем панорамирование, чтобы не улететь от комнаты
+  controls.target.x = THREE.MathUtils.clamp(controls.target.x, -7, 7);
+  controls.target.y = THREE.MathUtils.clamp(controls.target.y, 0.2, 5.0);
+  controls.target.z = THREE.MathUtils.clamp(controls.target.z, -7, 7);
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+setWallMode('all');
+animate();
+</script>
+</body>
+</html>
